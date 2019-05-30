@@ -19,7 +19,7 @@ from walle import model
 class SpaceModel(SurrogatePK, Model):
     # 表的名字:
     __tablename__ = 'spaces'
-    current_time = datetime.now()
+    current_time = datetime.now
     status_close = 0
     status_open = 1
 
@@ -72,8 +72,6 @@ class SpaceModel(SurrogatePK, Model):
         return data
 
     def add(self, *args, **kwargs):
-        # todo permission_ids need to be formated and checked
-
         data = dict(*args)
         space = SpaceModel(**data)
         db.session.add(space)
@@ -83,9 +81,6 @@ class SpaceModel(SurrogatePK, Model):
         return self.id
 
     def update(self, *args, **kwargs):
-        # todo permission_ids need to be formated and checked
-        # a new type to update a model
-
         update_data = dict(*args)
         return super(SpaceModel, self).update(**update_data)
 
@@ -106,9 +101,7 @@ class SpaceModel(SurrogatePK, Model):
         item = {
             'id': self.id,
             'user_id': self.user_id,
-            'user_name': uid2name[self.user_id] if uid2name and uid2name.has_key(self.user_id) else '',
-            # TODO
-            'group_id': 'self.group_id',
+            'user_name': uid2name[self.user_id] if uid2name and self.user_id in uid2name else '',
             'name': self.name,
             'status': self.status,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S'),
@@ -119,6 +112,7 @@ class SpaceModel(SurrogatePK, Model):
 
     def enable(self):
         return {
+            'enable_view': True,
             'enable_update': permission.enable_uid(self.user_id) or permission.role_upper_owner(),
             'enable_delete': permission.enable_uid(self.user_id) or permission.role_upper_owner(),
             'enable_create': False,

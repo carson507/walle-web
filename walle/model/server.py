@@ -18,12 +18,14 @@ from walle.service.rbac.role import *
 class ServerModel(SurrogatePK, Model):
     __tablename__ = 'servers'
 
-    current_time = datetime.now()
+    current_time = datetime.now
 
     # 表的结构:
     id = db.Column(Integer, primary_key=True, autoincrement=True)
     name = db.Column(String(100))
     host = db.Column(String(100))
+    user = db.Column(String(100))
+    port = db.Column(Integer)
     status = db.Column(Integer)
     created_at = db.Column(DateTime, default=current_time)
     updated_at = db.Column(DateTime, default=current_time, onupdate=current_time)
@@ -57,9 +59,9 @@ class ServerModel(SurrogatePK, Model):
         data = self.query.filter(ServerModel.status.notin_([self.status_remove])).filter_by(id=id).first()
         return data.to_json() if data else []
 
-    def add(self, name, host):
-        # todo permission_ids need to be formated and checked
-        server = ServerModel(name=name, host=host, status=self.status_available)
+    def add(self, *args, **kwargs):
+        data = dict(*args)
+        server = ServerModel(**data)
 
         db.session.add(server)
         db.session.commit()
@@ -69,20 +71,9 @@ class ServerModel(SurrogatePK, Model):
 
         return server.id
 
-    def update(self, name, host, id=None):
-        # todo permission_ids need to be formated and checked
-        id = id if id else self.id
-        role = ServerModel.query.filter_by(id=id).first()
-
-        if not role:
-            return False
-
-        role.name = name
-        role.host = host
-
-        ret = db.session.commit()
-
-        return ret
+    def update(self, *args, **kwargs):
+        update_data = dict(*args)
+        return super(ServerModel, self).update(**update_data)
 
     def remove(self, id=None):
         """
@@ -107,7 +98,8 @@ class ServerModel(SurrogatePK, Model):
         if not ids:
             return None
 
-        query = ServerModel.query.filter(ServerModel.id.in_(ids))
+        query = ServerModel.query.filter(ServerModel.id.in_(ids))\
+            .filter(ServerModel.status.notin_([cls.status_remove]))
         data = query.order_by(ServerModel.id.desc()).all()
         return [p.to_json() for p in data]
 
@@ -116,6 +108,8 @@ class ServerModel(SurrogatePK, Model):
             'id': self.id,
             'name': self.name,
             'host': self.host,
+            'user': self.user,
+            'port': self.port,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
         }
@@ -124,6 +118,7 @@ class ServerModel(SurrogatePK, Model):
 
     def enable(self):
         return {
+            'enable_view': True,
             'enable_update': permission.role_upper_developer(),
             'enable_delete': permission.role_upper_developer(),
             'enable_create': False,

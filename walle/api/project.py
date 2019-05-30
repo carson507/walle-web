@@ -9,17 +9,20 @@
 """
 
 import json
+import os, shutil
 
-from flask import request
+from flask import request, abort
 from walle.api.api import SecurityResource
 from walle.form.project import ProjectForm
 from walle.model.member import MemberModel
 from walle.model.project import ProjectModel
 from walle.service.extensions import permission
 from walle.service.rbac.role import *
+from walle.service.deployer import Deployer
 
 
 class ProjectAPI(SecurityResource):
+    actions = ['members', 'copy', 'detection']
 
     @permission.upper_reporter
     def get(self, action=None, project_id=None):
@@ -60,7 +63,9 @@ class ProjectAPI(SecurityResource):
         """
 
         project_model = ProjectModel(id=project_id)
-        project_info = project_model.item()
+        current_app.logger.info(project_id)
+        project_info = project_model.item(id=project_id)
+        current_app.logger.info(project_info)
         if not project_info:
             return self.render_json(code=-1)
 
@@ -69,7 +74,7 @@ class ProjectAPI(SecurityResource):
         return self.render_json(data=project_info)
 
     @permission.upper_developer
-    def post(self):
+    def post(self, action=None, project_id=None):
         """
         create a project
         /environment/
@@ -77,18 +82,26 @@ class ProjectAPI(SecurityResource):
         :return:
         """
         super(ProjectAPI, self).post()
+        if action is None:
+            return self.create()
 
-        form = ProjectForm(request.form, csrf_enabled=False)
+        if action in self.actions:
+            self_action = getattr(self, action.lower(), None)
+            return self_action(project_id)
+        else:
+            abort(404)
+
+    def create(self):
+        form = ProjectForm(request.form, csrf=False)
         if form.validate_on_submit():
             # add project
-            project_new = ProjectModel()
+            project = ProjectModel()
             data = form.form2dict()
-            id = project_new.add(data)
-            # TODO
-            if not id:
+            project_new = project.add(data)
+            if not project_new:
                 return self.render_json(code=-1)
 
-            return self.render_json(data=project_new.item())
+            return self.render_json(data=project_new)
         else:
             return self.render_error(code=Code.form_error, message=form.errors)
 
@@ -103,15 +116,22 @@ class ProjectAPI(SecurityResource):
         super(ProjectAPI, self).put()
 
         if action and action == 'members':
-            return self.members(project_id, members=json.loads(request.data))
+            return self.members(project_id, members=json.loads(request.data.decode('utf-8')))
 
-        form = ProjectForm(request.form, csrf_enabled=False)
+        form = ProjectForm(request.form, csrf=False)
         form.set_id(project_id)
         if form.validate_on_submit():
             server = ProjectModel().get_by_id(project_id)
+            repo_url_origin = server.repo_url
             data = form.form2dict()
             # a new type to update a model
             ret = server.update(data)
+            # maybe sth changed by git
+            if repo_url_origin != data['repo_url']:
+                dir_codebase_project = current_app.config.get('CODE_BASE') + str(project_id)
+                if os.path.exists(dir_codebase_project):
+                    shutil.rmtree(dir_codebase_project)
+
             return self.render_json(data=server.item())
         else:
             return self.render_error(code=Code.form_error, message=form.errors)
@@ -138,11 +158,47 @@ class ProjectAPI(SecurityResource):
         :param members:
         :return:
         """
-        # TODO login for group id
-
         group_model = MemberModel(project_id=project_id)
         ret = group_model.update_project(project_id=project_id, members=members)
 
         item, count, user_ids = group_model.members()
 
         return self.render_json(data=item)
+
+    def copy(self, project_id):
+        """
+
+        :param project_id:
+        :return:
+        """
+        project = ProjectModel.get_by_id(project_id).to_dict()
+        project['id'] = None
+        project['name'] = project['name'] + '-copy'
+        project_new = ProjectModel()
+        project_new_info = project_new.add(dict(project))
+
+        return self.render_json(data=project_new_info)
+
+    def detection(self, project_id):
+        """
+
+        :param project_id:
+        :return:
+        """
+        # walle LOCAL_SERVER_USER => walle user
+        # show ssh_rsa.pub
+
+        # LOCAL_SERVER_USER => git
+
+        # LOCAL_SERVER_USER => target_servers
+
+
+        # webroot is directory
+
+        # remote release directory
+
+        errors = Deployer(project_id=project_id).project_detection()
+        message = ''
+        if not errors:
+            message = '配置检测通过，恭喜：）开始你的上线之旅吧'
+        return self.render_json(data=errors, message=message)

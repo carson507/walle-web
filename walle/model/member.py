@@ -21,7 +21,7 @@ from walle.service.rbac.role import *
 class MemberModel(SurrogatePK, Model):
     __tablename__ = 'members'
 
-    current_time = datetime.now()
+    current_time = datetime.now
     group_id = None
     project_id = None
 
@@ -39,8 +39,6 @@ class MemberModel(SurrogatePK, Model):
     updated_at = db.Column(DateTime, default=current_time, onupdate=current_time)
     group_name = None
 
-    # TODO group id全局化
-
     def spaces(self, user_id=None):
         """
         获取分页列表
@@ -51,7 +49,8 @@ class MemberModel(SurrogatePK, Model):
         SpaceModel = model.space.SpaceModel
         filters = {
             MemberModel.status.notin_([self.status_remove]),
-            MemberModel.source_type == self.source_type_group
+            MemberModel.source_type == self.source_type_group,
+            SpaceModel.status.notin_([self.status_remove]),
         }
         query = self.query.filter(*filters).with_labels()\
             .with_entities(MemberModel.source_id, MemberModel.access_level, SpaceModel.name)
@@ -79,9 +78,6 @@ class MemberModel(SurrogatePK, Model):
         if user_id:
             query = query.filter_by(user_id=user_id)
 
-        # if project_id:
-        #     query = query.filter_by(source_id=project_id)
-
         projects = query.all()
         current_app.logger.info(projects)
 
@@ -96,7 +92,6 @@ class MemberModel(SurrogatePK, Model):
         }
         query = self.query.filter(*filters)
         projects = query.with_entities(MemberModel.source_id).all()
-        current_app.logger.error(projects)
         return [project[0] for project in projects]
 
     def update_group(self, members, group_name=None):
@@ -119,11 +114,19 @@ class MemberModel(SurrogatePK, Model):
         }
         MemberModel.query.filter(*filters).delete()
 
+        member_role = []
+
         current_app.logger.info(members)
         # insert all
         for member in members:
             current_app.logger.info(member)
             current_app.logger.info(member['role'])
+
+            # 过滤重复数据 同一空间下同一用户不能有同样的角色
+            if (int(member['user_id']), str(member['role']).upper()) in member_role:
+                continue
+            member_role.append((member['user_id'], member['role'].upper()))
+
             update = {
                 'user_id': member['user_id'],
                 'source_id': self.group_id,
@@ -138,9 +141,32 @@ class MemberModel(SurrogatePK, Model):
 
         return ret
 
+    def change_owner(self, old_owner_id, new_owner_id):
+        # change owner for space
+        if not new_owner_id or str(new_owner_id) == str(old_owner_id):
+            return
+
+        filters = {
+            MemberModel.source_id == self.group_id,
+            MemberModel.source_type == self.source_type_group,
+            MemberModel.user_id.in_([old_owner_id, new_owner_id])
+        }
+        MemberModel.query.filter(*filters).delete(synchronize_session=False)
+
+        update = {
+            'user_id': new_owner_id,
+            'source_id': self.group_id,
+            'source_type': self.source_type_group,
+            'access_level': OWNER,
+            'status': self.status_available,
+        }
+        m = MemberModel(**update)
+        db.session.add(m)
+        db.session.commit()
+
     def update_project(self, project_id, members, group_name=None):
         space_info = model.project.ProjectModel.query.filter_by(id=project_id).first().to_json()
-        space_members, count, user_ids = self.members(group_id=space_info['space_id'])
+        space_members, count, user_ids = self.members(group_id=space_info['space_id'], size=-1)
         update_uids = []
 
         for member in members:
@@ -177,7 +203,7 @@ class MemberModel(SurrogatePK, Model):
 
         return ret
 
-    def members(self, group_id=None, project_id=None, page=0, size=10, kw=None):
+    def members(self, group_id=None, project_id=None, page=0, size=None, kw=None):
         """
         获取单条记录
         :param role_id:
@@ -198,7 +224,10 @@ class MemberModel(SurrogatePK, Model):
         query = query.add_columns(MemberModel.access_level, UserModel.id)
 
         count = query.count()
-        data = query.order_by(MemberModel.id.asc()).offset(int(size) * int(page)).limit(size).all()
+        query = query.order_by(MemberModel.id.asc())
+        if size and size>0:
+            query = query.offset(int(size) * int(page)).limit(size)
+        data = query.all()
 
         current_app.logger.info(data)
         list = []

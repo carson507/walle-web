@@ -21,8 +21,8 @@ class ServerAPI(SecurityResource):
     @permission.upper_developer
     def get(self, id=None):
         """
-        fetch environment list or one item
-        /environment/<int:env_id>
+        fetch server list or one item
+        /server/<int:env_id>
 
         :return:
         """
@@ -33,7 +33,7 @@ class ServerAPI(SecurityResource):
     @permission.upper_developer
     def list(self):
         """
-        fetch environment list
+        fetch server list
 
         :return:
         """
@@ -62,17 +62,18 @@ class ServerAPI(SecurityResource):
 
     def post(self):
         """
-        create a environment
-        /environment/
+        create a server
+        /server/
 
         :return:
         """
         super(ServerAPI, self).post()
 
-        form = ServerForm(request.form, csrf_enabled=False)
+        form = ServerForm(request.form, csrf=False)
         if form.validate_on_submit():
             server_new = ServerModel()
-            id = server_new.add(name=form.name.data, host=form.host.data)
+            data = form.form2dict()
+            id = server_new.add(data)
             if not id:
                 return self.render_json(code=-1)
 
@@ -83,18 +84,19 @@ class ServerAPI(SecurityResource):
     @permission.upper_developer
     def put(self, id):
         """
-        update environment
-        /environment/<int:id>
+        update server
+        /server/<int:id>
 
         :return:
         """
         super(ServerAPI, self).put()
 
-        form = ServerForm(request.form, csrf_enabled=False)
+        form = ServerForm(request.form, csrf=False)
         form.set_id(id)
         if form.validate_on_submit():
-            server = ServerModel(id=id)
-            ret = server.update(name=form.name.data, host=form.host.data)
+            server = ServerModel().get_by_id(id)
+            data = form.form2dict()
+            ret = server.update(data)
             return self.render_json(data=server.item())
         else:
             return self.render_error(code=Code.form_error, message=form.errors)
@@ -102,8 +104,8 @@ class ServerAPI(SecurityResource):
     @permission.upper_developer
     def delete(self, id):
         """
-        remove an environment
-        /environment/<int:id>
+        remove an server
+        /server/<int:id>
 
         :return:
         """

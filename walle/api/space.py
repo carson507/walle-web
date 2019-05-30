@@ -81,7 +81,7 @@ class SpaceAPI(SecurityResource):
         """
         super(SpaceAPI, self).post()
 
-        form = SpaceForm(request.form, csrf_enabled=False)
+        form = SpaceForm(request.form, csrf=False)
         # return self.render_json(code=-1, data = form.form2dict())
         if form.validate_on_submit():
             # create space
@@ -119,18 +119,28 @@ class SpaceAPI(SecurityResource):
 
     @permission.upper_master
     def update(self, space_id):
-        form = SpaceForm(request.form, csrf_enabled=False)
+        form = SpaceForm(request.form, csrf=False)
         form.set_id(space_id)
         if form.validate_on_submit():
             space = SpaceModel().get_by_id(space_id)
             data = form.form2dict()
             current_app.logger.info(data)
-
+            member_model = MemberModel(group_id=space_id)
+            old_owner = space.user_id
+            new_owner = data['user_id']
             # a new type to update a model
-            ret = space.update(data)
+            space.update(data)
+
+            if str(old_owner) != str(new_owner):
+                # owner has changed
+                member_model.change_owner(old_owner, new_owner)
+
             # create group
+            current_owner = {"user_id": new_owner, "role": OWNER}
             if 'members' in request.form:
-                MemberModel(group_id=space_id).update_group(members=json.loads(request.form['members']))
+                members = json.loads(request.form['members'])
+                members.append(current_owner)
+                member_model.update_group(members=members)
             return self.render_json(data=space.item())
         else:
             return self.render_error(code=Code.form_error, message=form.errors)
